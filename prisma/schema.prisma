@@ -1,0 +1,376 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("editor") // admin, editor, validator
+  avatarUrl String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  posts             Post[]
+  validations       ValidationLog[]
+  auditLogs         AuditLog[]
+  linkedinAccounts  LinkedInAccount[]
+  promptTemplates   PromptTemplate[]
+  abTests           ABTest[]
+  competitors       Competitor[]
+  contentIdeas      ContentIdea[]
+  brandVoiceProfiles BrandVoiceProfile[]
+  postingSlots      PostingSlot[]
+  notifications     Notification[]
+}
+
+model LinkedInAccount {
+  id              String   @id @default(cuid())
+  userId          String
+  accessToken     String
+  refreshToken    String?
+  tokenExpiresAt  DateTime?
+  organizationId  String?
+  organizationName String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id])
+  posts Post[]
+
+  @@index([userId])
+  @@unique([userId, organizationId])
+}
+
+model Post {
+  id             String   @id @default(cuid())
+  subject        String
+  angle          String?
+  audience       String?
+  cta            String?
+  imageUrl       String?
+  hashtags       String?
+  scheduledDate  DateTime?
+  aiProvider     String   @default("openrouter") // openrouter, groq, glm
+  status         String   @default("idea") // idea, draft, pending_approval, approved, rejected, scheduled, posted, failed
+  finalContent   String?
+  contentScore   Int?
+  scoreDetails   String?
+  authorId       String
+  linkedinAccountId String?
+  linkedinPostId    String?
+  errorMessage      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  author           User           @relation(fields: [authorId], references: [id])
+  linkedinAccount  LinkedInAccount?  @relation(fields: [linkedinAccountId], references: [id])
+  aiVariants       AIVariant[]
+  validations      ValidationLog[]
+  publicationLogs  PublicationLog[]
+  metrics          PostMetric[]
+  testAPosts       ABTest[]        @relation("TestPostA")
+  testBPosts       ABTest[]        @relation("TestPostB")
+  scoringCalibrations ScoringCalibration[]
+  audienceComments     AudienceComment[]
+
+  @@index([authorId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@index([linkedinAccountId])
+}
+
+model AIVariant {
+  id          String   @id @default(cuid())
+  postId      String
+  content     String
+  variantIndex Int
+  provider    String
+  model       String?
+  contentScore Int?
+  createdAt   DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+}
+
+model ValidationLog {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  action    String   // approve, reject, request_changes
+  comment   String?
+  createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([postId])
+  @@index([userId])
+}
+
+model PublicationLog {
+  id           String   @id @default(cuid())
+  postId       String
+  status       String   // success, failed
+  errorMessage String?
+  linkedinPostId String?
+  publishedAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String   // Post, User, LinkedInAccount, Settings
+  entityId   String?
+  action     String   // create, update, delete, login, publish, generate, etc.
+  userId     String?
+  metadata   String?  // JSON string
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Settings {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+  updatedAt DateTime @updatedAt
+}
+
+model PromptTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String   @default("general") // thought_leadership, listicle, storytelling, controverse, howto, engagement
+  prompt      String   // The actual prompt text with {variables}
+  variables   String?  // JSON array of variable definitions
+  isDefault   Boolean  @default(false)
+  authorId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author User @relation(fields: [authorId], references: [id])
+
+  @@unique([name, authorId])
+}
+
+// ============================================================
+// Phase 3A: Analytics & Intelligence Layer
+// ============================================================
+
+model PostMetric {
+  id             String   @id @default(cuid())
+  postId         String
+  impressions    Int      @default(0)
+  reach          Int      @default(0)
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  reposts        Int      @default(0)
+  clicks         Int      @default(0)
+  engagementRate Float    @default(0)
+  collectedAt    DateTime @default(now())
+  source         String   @default("manual")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([collectedAt])
+}
+
+model ABTest {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("draft") // draft, running, completed, cancelled
+  postAId     String
+  postBId     String
+  winnerId    String?
+  startDate   DateTime?
+  endDate     DateTime?
+  criteria    String   @default("engagement") // engagement, impressions, clicks
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  postA     Post     @relation("TestPostA", fields: [postAId], references: [id])
+  postB     Post     @relation("TestPostB", fields: [postBId], references: [id])
+  readings  ABReading[]
+  author    User     @relation(fields: [authorId], references: [id])
+  authorId  String
+
+  @@index([postAId])
+  @@index([postBId])
+  @@index([authorId])
+}
+
+model ABReading {
+  id         String   @id @default(cuid())
+  testId     String
+  variant    String
+  metric     String
+  value      Float
+  recordedAt DateTime @default(now())
+
+  test ABTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@index([testId])
+}
+
+model Competitor {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  linkedinUrl  String
+  industry     String?
+  notes        String?
+  isActive     Boolean  @default(true)
+  lastSyncedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id])
+  posts CompetitorPost[]
+
+  @@unique([linkedinUrl])
+}
+
+model CompetitorPost {
+  id             String   @id @default(cuid())
+  competitorId   String
+  subject        String
+  content        String?
+  publishedAt    DateTime?
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  reposts        Int      @default(0)
+  engagementRate Float    @default(0)
+  detectedFormat String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  competitor Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  @@index([competitorId])
+}
+
+// ============================================================
+// Phase 3B: Intelligence Layer
+// ============================================================
+
+model ScoringCalibration {
+  id             String   @id @default(cuid())
+  postId         String
+  predictedScore Int
+  actualScore    Float
+  delta          Float
+  calibratedAt   DateTime @default(now())
+  factors        String?
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+}
+
+model PostingSlot {
+  id              String   @id @default(cuid())
+  userId          String?
+  dayOfWeek       Int
+  hour            Int
+  avgEngagement   Float    @default(0)
+  totalPosts      Int      @default(0)
+  bestScore       Float?
+  sampleData      String?
+  lastCalculated  DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model BrandVoiceProfile {
+  id              String   @id @default(cuid())
+  userId          String
+  name            String   @default("Profil principal")
+  analyzedAt      DateTime @default(now())
+  postCount       Int      @default(0)
+  tone            String?
+  vocabulary      String?
+  structure       String?
+  emotional       String?
+  themes          String?
+  avgScore        Float?
+  avgEngagement   Float?
+  voicePrompt     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AudienceComment {
+  id          String   @id @default(cuid())
+  postId      String
+  authorName  String?
+  content     String
+  likes       Int      @default(0)
+  sentiment   String?
+  collectedAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model ContentIdea {
+  id              String   @id @default(cuid())
+  userId          String
+  source          String   @default("manual")
+  sourceDetail    String?
+  title           String
+  description     String?
+  suggestedFormat String?
+  suggestedAngle  String?
+  priority        String   @default("medium")
+  status          String   @default("idea")
+  relatedPostIds  String?
+  upvotes         Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([status])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // "post_approved", "post_rejected", "post_published", "post_failed", "comment_added", "system", "mention"
+  title       String
+  message     String
+  isRead      Boolean  @default(false)
+  actionUrl   String?  // optional deep link like "/posts/abc123"
+  metadata    String?  // JSON string for extra data
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}

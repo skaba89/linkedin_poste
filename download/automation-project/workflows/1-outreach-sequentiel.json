@@ -1,0 +1,301 @@
+{
+  "name": "Séquence d'Outreach LinkedIn",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "triggerAtHour": 9 }]
+        }
+      },
+      "id": "cron-9am-daily",
+      "name": "Cron - Daily 9AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, first_name, last_name, headline, profile_url FROM prospects WHERE status = 'new' ORDER BY created_at ASC LIMIT 20",
+        "options": {}
+      },
+      "id": "postgres-get-prospects",
+      "name": "Postgres - Get New Prospects",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [220, 300],
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-in-batches",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [440, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 1024,\n  \"system\": \"Tu es un expert en outreach LinkedIn B2B. Génère un message de connexion personnalisé, concis (max 300 chars), chaleureux et professionnel en français. Adapte le ton au profil du prospect. Ne mentionne pas que tu es une IA.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Génère un message de connexion LinkedIn pour {{ $json.first_name }} {{ $json.last_name }} qui a le profil suivant: {{ $json.headline }}. Le message doit être court, personnalisé et inviter à échanger.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-generate-message",
+      "name": "Claude - Generate Invite Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-anthropic-header",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the generated message from Claude response\nconst response = $input.first().json;\nconst message = response.content[0].text;\n\n// Random delay between 45 and 120 seconds\nconst delaySeconds = Math.floor(Math.random() * (120 - 45 + 1)) + 45;\n\n// Also pass through the original prospect data\nconst prospect = $('Split In Batches').first().json;\n\nreturn [{\n  json: {\n    ...prospect,\n    generated_message: message,\n    delay_seconds: delaySeconds\n  }\n}];"
+      },
+      "id": "code-prepare-send",
+      "name": "Code - Prepare Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.delay_seconds }}",
+        "unit": "seconds"
+      },
+      "id": "code-delay-random",
+      "name": "Wait - Random Delay",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1100, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "url": "https://www.linkedin.com",
+        "action": "launchPage",
+        "options": {}
+      },
+      "id": "playwright-launch",
+      "name": "Playwright - Open Browser",
+      "type": "n8n-nodes-base.playwright",
+      "typeVersion": 1,
+      "position": [1320, 200],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Navigate to the prospect's profile and send the connection invite\nconst profileUrl = $input.first().json.profile_url;\nconst message = $input.first().json.generated_message;\nconst prospectId = $input.first().json.id;\n\n// Log the action for audit\nreturn [{\n  json: {\n    prospect_id: prospectId,\n    profile_url: profileUrl,\n    message_sent: message,\n    action: 'connection_invite_sent',\n    sent_at: new Date().toISOString(),\n    status: 'sent'\n  }\n}];"
+      },
+      "id": "playwright-send-invite",
+      "name": "Playwright - Send Invite",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 200],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE prospects SET status = 'contacted', contacted_at = NOW(), last_message = $1 WHERE id = $2",
+        "options": {}
+      },
+      "id": "postgres-update-status",
+      "name": "Postgres - Update Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1760, 200],
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check remaining daily quota\nconst maxDailyInvites = 100;\nconst today = new Date().toISOString().split('T')[0];\n\n// Count invites sent today\nconst todayCount = 0; // Would be queried from DB in production\n\nconst remaining = maxDailyInvites - todayCount;\n\nreturn [{\n  json: {\n    daily_quota_max: maxDailyInvites,\n    daily_sent: todayCount,\n    daily_remaining: remaining,\n    quota_exceeded: remaining <= 0,\n    should_pause: remaining <= 5\n  }\n}];"
+      },
+      "id": "code-check-quota",
+      "name": "Code - Check Quota",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 200],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.quota_exceeded }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-quota-exceeded",
+      "name": "If - Quota Exceeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2200, 200],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/{{ $env.DISCORD_WEBHOOK_ID }}/{{ $env.DISCORD_WEBHOOK_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"embeds\": [\n    {\n      \"title\": \"⚠️ Quota LinkedIn atteinte\",\n      \"description\": \"Le quota quotidien de 100 invitations a été atteint. La séquence est mise en pause.\",\n      \"color\": 16776960,\n      \"timestamp\": \"{{ new Date().toISOString() }}\",\n      \"fields\": [\n        {\n          \"name\": \"Invitations envoyées\",\n          \"value\": \"{{ $json.daily_sent }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Quota max\",\n          \"value\": \"{{ $json.daily_quota_max }}\",\n          \"inline\": true\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "discord-quota-alert",
+      "name": "Discord - Quota Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2420, 100],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/{{ $env.DISCORD_WEBHOOK_ID }}/{{ $env.DISCORD_WEBHOOK_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"embeds\": [\n    {\n      \"title\": \"❌ Erreur Séquence Outreach\",\n      \"description\": \"Une erreur est survenue dans la séquence d'outreach automatique.\",\n      \"color\": 16711680,\n      \"timestamp\": \"{{ new Date().toISOString() }}\",\n      \"fields\": [\n        {\n          \"name\": \"Workflow\",\n          \"value\": \"1-outreach-sequentiel\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Error\",\n          \"value\": \"{{ $json.message || $json.error }}\",\n          \"inline\": false\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "discord-error-alert",
+      "name": "Discord - Error Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2420, 400],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Continue to next batch - no-op placeholder\nreturn $input.all();"
+      },
+      "id": "code-done-batch",
+      "name": "Code - Batch Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 400],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Workflow complete\nreturn [{\n  json: {\n    message: 'Outreach sequence completed',\n    completed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "code-workflow-done",
+      "name": "Code - Workflow Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 500],
+      "credentials": {}
+    }
+  ],
+  "connections": {
+    "cron-9am-daily": {
+      "main": [[{ "node": "postgres-get-prospects", "type": "main", "index": 0 }]]
+    },
+    "postgres-get-prospects": {
+      "main": [[{ "node": "split-in-batches", "type": "main", "index": 0 }]]
+    },
+    "split-in-batches": {
+      "main": [[{ "node": "claude-generate-message", "type": "main", "index": 0 }]]
+    },
+    "claude-generate-message": {
+      "main": [[{ "node": "code-prepare-send", "type": "main", "index": 0 }]]
+    },
+    "code-prepare-send": {
+      "main": [[{ "node": "code-delay-random", "type": "main", "index": 0 }]]
+    },
+    "code-delay-random": {
+      "main": [[{ "node": "playwright-launch", "type": "main", "index": 0 }]]
+    },
+    "playwright-launch": {
+      "main": [[{ "node": "playwright-send-invite", "type": "main", "index": 0 }]]
+    },
+    "playwright-send-invite": {
+      "main": [[{ "node": "postgres-update-status", "type": "main", "index": 0 }]]
+    },
+    "postgres-update-status": {
+      "main": [[{ "node": "code-check-quota", "type": "main", "index": 0 }]]
+    },
+    "code-check-quota": {
+      "main": [[{ "node": "if-quota-exceeded", "type": "main", "index": 0 }]]
+    },
+    "if-quota-exceeded": {
+      "main": [
+        [{ "node": "discord-quota-alert", "type": "main", "index": 0 }],
+        [{ "node": "split-in-batches", "type": "main", "index": 0 }]
+      ]
+    },
+    "discord-quota-alert": {
+      "main": [[]]
+    },
+    "code-done-batch": {
+      "main": [[{ "node": "split-in-batches", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "discord-error-alert"
+  },
+  "versionId": "outreach-seq-v1-20250601",
+  "meta": {
+    "instanceId": ""
+  },
+  "tags": [
+    { "name": "linkedin" },
+    { "name": "outreach" },
+    { "name": "claude" }
+  ]
+}

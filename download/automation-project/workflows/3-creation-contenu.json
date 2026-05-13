@@ -1,0 +1,216 @@
+{
+  "name": "Création de Contenu LinkedIn & Instagram",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10,
+              "weekdays": [1, 4]
+            }
+          ]
+        }
+      },
+      "id": "cron-mon-thu-10am",
+      "name": "Cron - Mon & Thu 10AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pick a random content topic from the predefined pool\nconst topics = [\n  {\n    theme: \"Productivité & IA\",\n    angle: \"Comment l'IA transforme le travail des entrepreneurs en 2025\",\n    tone: \"inspirant\",\n    format: \"story + tips\",\n    hashtags: [\"#IA\", \"#Productivité\", \"#Entrepreneuriat\", \"#TechTendance\", \"#Innovation\"]\n  },\n  {\n    theme: \"Leadership & Management\",\n    angle: \"Les 3 erreurs que font 90% des managers avec leur équipe\",\n    tone: \"conseil\",\n    format: \"listicle\",\n    hashtags: [\"#Leadership\", \"#Management\", \"#RH\", \"#TeamBuilding\"]\n  },\n  {\n    theme: \"Growth Hacking\",\n    angle: \"La stratégie qui a fait passer notre CA de 0 à 100K€ en 6 mois\",\n    tone: \"storytelling\",\n    format: \"case study\",\n    hashtags: [\"#GrowthHacking\", \"#Business\", \"#StartupLife\", \"#Marketing\"]\n  },\n  {\n    theme: \"Automatisation & No-Code\",\n    angle: \"3 workflows que j'automatise qui me font gagner 15h/semaine\",\n    tone: \"pratique\",\n    format: \"tutorial\",\n    hashtags: [\"#NoCode\", \"#Automatisation\", \"#n8n\", \"#Productivité\", \"#Outils\"]\n  },\n  {\n    theme: \"Réseautage LinkedIn\",\n    angle: \"Pourquoi 95% des gens utilisent LinkedIn mal (et comment faire mieux)\",\n    tone: \"provocateur\",\n    format: \"opinion\",\n    hashtags: [\"#LinkedInTips\", \"#Réseautage\", \"#PersonalBranding\", \"#B2B\"]\n  },\n  {\n    theme: \"Mental & Bien-être Pro\",\n    angle: \"Le burnout n'est pas une médaille. Comment j'ai réorganisé ma semaine\",\n    tone: \"vulnerable\",\n    format: \"réflexion\",\n    hashtags: [\"#MentalHealth\", \"#Burnout\", \"#Équilibre\", \"#BienEtre\"]\n  },\n  {\n    theme: \"Tendances Tech 2025\",\n    angle: \"Les 5 technologies qui vont bouleverser le marketing cette année\",\n    tone: \"expert\",\n    format: \"analyse\",\n    hashtags: [\"#TechTendance\", \"#Marketing\", \"#Digital\", \"#Innovation\", \"#Futur\"]\n  },\n  {\n    theme: \"Vente & Négociation\",\n    angle: \"Le script de closing qui convertit 3x mieux (sans être agressif)\",\n    tone: \"pratique\",\n    format: \"méthode\",\n    hashtags: [\"#Vente\", \"#Closing\", \"#B2BSales\", \"#Négociation\", \"#Conversion\"]\n  }\n];\n\nconst selectedTopic = topics[Math.floor(Math.random() * topics.length)];\n\nreturn [{\n  json: {\n    ...selectedTopic,\n    selected_at: new Date().toISOString(),\n    platform_linkedin: true,\n    platform_instagram: true\n  }\n}];"
+      },
+      "id": "code-pick-topic",
+      "name": "Code - Pick Random Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 2048,\n  \"system\": \"Tu es un expert en marketing de contenu LinkedIn B2B francophone. Tu créés des posts LinkedIn viraux et engageants.\\n\\nRègles :\\n- Format : {{ $json.format }}\\n- Ton : {{ $json.tone }}\\n- Longueur : 1200-1800 caractères\\n- Utilise des sauts de ligne stratégiques\\n- Commence par un hook fort (1ère ligne = accroche)\\n- Termine par un CTA clair\\n- Utilise des emojis avec parcimonie (max 3-4)\\n- Pas de hashtags dans le post (ajoutés séparément)\\n\\nRéponds UNIQUEMENT avec le contenu du post, sans explication ni markdown.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Crée un post LinkedIn sur ce thème : {{ $json.theme }}\\n\\nAngle : {{ $json.angle }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-generate-linkedin",
+      "name": "Claude - Generate LinkedIn Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-anthropic-header",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 1024,\n  \"system\": \"Tu es un expert en création de contenu Instagram B2B. Tu créés des captions engageantes et optimisées pour l'algorithme Instagram.\\n\\nRègles :\\n- Ton : {{ $json.tone }}\\n- Longueur : 800-1200 caractères\\n- Commence par un hook percutant dans les 2 premières lignes\\n- Utilise 2-4 emojis pertinents\\n- Inclus un CTA engageant (commentaire, partage, save)\\n- Structure avec sauts de ligne\\n- Finis par les hashtags séparés du texte par un saut de ligne\\n\\nRéponds UNIQUEMENT avec la caption complète incluant les hashtags, sans explication.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Crée une caption Instagram sur ce thème : {{ $json.theme }}\\n\\nAngle : {{ $json.angle }}\\n\\nHashtags à inclure : {{ JSON.stringify($json.hashtags) }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-generate-instagram",
+      "name": "Claude - Generate Instagram Caption",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 420],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-anthropic-header",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "merge",
+        "jsCode": "// Merge LinkedIn and Instagram outputs with the topic data\nconst topicData = $('Code - Pick Random Topic').first().json;\n\n// Get the generated contents\nconst linkedinData = $input.first().json;\nconst linkedinPost = linkedinData.content ? linkedinData.content[0].text : '';\n\n// Instagram data comes from second input\nlet instagramCaption = '';\nif ($input.length > 1) {\n  const igData = $input.all()[1].json;\n  instagramCaption = igData.content ? igData.content[0].text : '';\n}\n\nconst hashtags = topicData.hashtags.join(' ');\n\nreturn [{\n  json: {\n    theme: topicData.theme,\n    angle: topicData.angle,\n    tone: topicData.tone,\n    format: topicData.format,\n    linkedin_post: linkedinPost,\n    instagram_caption: instagramCaption,\n    hashtags: hashtags,\n    created_at: new Date().toISOString(),\n    status: 'draft'\n  }\n}];"
+      },
+      "id": "code-merge-outputs",
+      "name": "Code - Merge Content Outputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO content_drafts (theme, angle, tone, format, linkedin_post, instagram_caption, hashtags, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) RETURNING id",
+        "options": {}
+      },
+      "id": "postgres-save-draft",
+      "name": "Postgres - Save Draft",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [880, 300],
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 120,
+        "unit": "minutes"
+      },
+      "id": "wait-2-hours",
+      "name": "Wait - 2 Hours Review Period",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1100, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE content_drafts SET status = 'published', published_at = NOW() WHERE id = $1",
+        "options": {}
+      },
+      "id": "postgres-mark-published",
+      "name": "Postgres - Mark Published",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1320, 300],
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/{{ $env.DISCORD_WEBHOOK_ID }}/{{ $env.DISCORD_WEBHOOK_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"embeds\": [\n    {\n      \"title\": \"✅ Contenu publié\",\n      \"description\": \"Nouveau contenu publié automatiquement.\",\n      \"color\": 32768,\n      \"timestamp\": \"{{ new Date().toISOString() }}\",\n      \"fields\": [\n        {\n          \"name\": \"Thème\",\n          \"value\": \"{{ $('Code - Merge Content Outputs').first().json.theme }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Format\",\n          \"value\": \"{{ $('Code - Merge Content Outputs').first().json.format }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Plateformes\",\n          \"value\": \"LinkedIn + Instagram\",\n          \"inline\": true\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "discord-content-published",
+      "name": "Discord - Content Published",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 300],
+      "credentials": {}
+    }
+  ],
+  "connections": {
+    "cron-mon-thu-10am": {
+      "main": [[{ "node": "code-pick-topic", "type": "main", "index": 0 }]]
+    },
+    "code-pick-topic": {
+      "main": [
+        [
+          { "node": "claude-generate-linkedin", "type": "main", "index": 0 },
+          { "node": "claude-generate-instagram", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "claude-generate-linkedin": {
+      "main": [[{ "node": "code-merge-outputs", "type": "main", "index": 0 }]]
+    },
+    "claude-generate-instagram": {
+      "main": [[{ "node": "code-merge-outputs", "type": "main", "index": 0 }]]
+    },
+    "code-merge-outputs": {
+      "main": [[{ "node": "postgres-save-draft", "type": "main", "index": 0 }]]
+    },
+    "postgres-save-draft": {
+      "main": [[{ "node": "wait-2-hours", "type": "main", "index": 0 }]]
+    },
+    "wait-2-hours": {
+      "main": [[{ "node": "postgres-mark-published", "type": "main", "index": 0 }]]
+    },
+    "postgres-mark-published": {
+      "main": [[{ "node": "discord-content-published", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "creation-contenu-v1-20250601",
+  "meta": {
+    "instanceId": ""
+  },
+  "tags": [
+    { "name": "contenu" },
+    { "name": "linkedin" },
+    { "name": "instagram" },
+    { "name": "claude" },
+    { "name": "social-media" }
+  ]
+}

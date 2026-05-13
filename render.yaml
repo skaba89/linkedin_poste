@@ -1,0 +1,92 @@
+services:
+  # ═══════════════════════════════════════════════════════════════
+  #  DataSphere — Render.com + Neon PostgreSQL
+  # ═══════════════════════════════════════════════════════════════
+  #
+  #  Setup en 3 minutes:
+  #    1. Créez un compte Neon: https://neon.tech (login GitHub)
+  #    2. Nouveau projet → nom: datasphere → region: eu-west-2
+  #    3. Copiez la connection string depuis le dashboard Neon
+  #    4. Coller dans Render → datasphere-app → Environment:
+  #       DATABASE_URL = postgresql://...neon.tech/datasphere?sslmode=require
+  #
+  #  Coût: ~26$/mois (7$ Render Web + 19$ Neon Pro 8GB)
+  #         ou GRATUIT (Render Free + Neon Free 512MB)
+  # ═══════════════════════════════════════════════════════════════
+
+  # ── Web Service (Next.js + 4 Background Workers via PM2) ─────
+  - type: web
+    name: datasphere-app
+    runtime: docker
+    plan: free               # "free" pour démarrer, puis "starter" (7$/mois)
+    region: frankfurt        # Le plus proche de eu-west-2 (Neon London)
+    branch: main
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    envVars:
+      # ─── Core ──────────────────────────────────────────────────
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: HOSTNAME
+        value: 0.0.0.0
+
+      # ─── Database (Neon) ───────────────────────────────────────
+      # ⚠️ À CONFIGURER dans le dashboard Render → Environment:
+      # Format Neon:
+      #   postgresql://datasphere_owner:[PASSWORD]@ep-[NAME].eu-west-2.aws.neon.tech/datasphere?sslmode=require
+      - key: DATABASE_URL
+        sync: false
+
+      # ─── Secrets (à configurer dans le dashboard Render) ───────
+      - key: JWT_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+
+      # ─── AI ────────────────────────────────────────────────────
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GLM_API_KEY
+        sync: false
+
+      # ─── Email ─────────────────────────────────────────────────
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+      # ─── Notifications ─────────────────────────────────────────
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: WHATSAPP_PHONE
+        sync: false
+      - key: WHATSAPP_CALLMEBOT_KEY
+        sync: false
+
+      # ─── LinkedIn ──────────────────────────────────────────────
+      - key: LINKEDIN_CLIENT_ID
+        sync: false
+      - key: LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: LINKEDIN_WEBHOOK_SECRET
+        sync: false
+
+      # ─── Stripe ────────────────────────────────────────────────
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+        sync: false
+
+    # ─── Health Check ─────────────────────────────────────────────
+    healthCheckPath: /api/health
+
+    # ─── Auto-deploy ──────────────────────────────────────────────
+    autoDeploy: true

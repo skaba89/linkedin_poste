@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": false,
+    "declaration": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "outDir": "./dist/workers",
+    "jsx": "react-jsx",
+    "plugins": []
+  },
+  "include": [
+    "worker-scheduled-publish.ts",
+    "worker-auto-reply.ts",
+    "worker-mission-scout.ts",
+    "worker-all-agents.ts",
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next"
+  ]
+}

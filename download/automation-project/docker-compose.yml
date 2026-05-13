@@ -1,0 +1,98 @@
+services:
+  # ──────────────────────────────────────────────
+  # PostgreSQL 16 — Base de données principale
+  # ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: automation-postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-automation}
+      POSTGRES_USER: ${POSTGRES_USER:-automation}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-automation} -d ${POSTGRES_DB:-automation}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - automation-net
+
+  # ──────────────────────────────────────────────
+  # n8n Community Edition — Orchestrateur workflows
+  # ──────────────────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: automation-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-automation}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-automation}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:?N8N_BASIC_AUTH_PASSWORD is required}
+      N8N_HOST: ${N8N_HOST:-0.0.0.0}
+      N8N_PORT: ${N8N_PORT:-5678}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Europe/Paris}
+      TZ: ${TZ:-Europe/Paris}
+      NODE_FUNCTION_ALLOW_EXTERNAL: axios
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - automation-net
+
+  # ──────────────────────────────────────────────
+  # Playwright Server — Navigation automatisée
+  # ──────────────────────────────────────────────
+  playwright-server:
+    build:
+      context: ./playwright-server
+      dockerfile: Dockerfile
+    container_name: automation-playwright
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    env_file:
+      - .env
+    volumes:
+      - playwright_logs:/app/logs
+    networks:
+      - automation-net
+
+  # ──────────────────────────────────────────────
+  # Redis — Cache et file d'attente (optionnel)
+  # ──────────────────────────────────────────────
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: automation-redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6380:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - automation-net
+
+networks:
+  automation-net:
+    driver: bridge
+
+volumes:
+  n8n_data:
+  postgres_data:
+  playwright_logs:

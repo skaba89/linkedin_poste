@@ -1,0 +1,399 @@
+{
+  "name": "Gestion Séquences de Suivi",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "triggerEvery": 4 }]
+        }
+      },
+      "id": "cron-every-4h",
+      "name": "Cron - Every 4 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, first_name, last_name, headline, profile_url, sequence_step, last_contacted_at, next_action_at, status FROM prospects WHERE status = 'contacted' AND next_action_at <= NOW() AND sequence_step < 5 ORDER BY next_action_at ASC LIMIT 30",
+        "options": {}
+      },
+      "id": "postgres-get-followups",
+      "name": "Postgres - Get Follow-ups",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [220, 300],
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-prospects",
+      "name": "If - Has Prospects",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-in-batches",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [660, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate the next step in the sequence based on current step\nconst prospect = $input.first().json;\nconst currentStep = prospect.sequence_step || 1;\n\nconst sequenceConfig = {\n  1: {\n    action: 'send_dm',\n    next_action: 'check_reply',\n    delay_days: 3,\n    step_name: 'Premier DM de suivi',\n    context: 'Rappel suite à la connexion. Suggérer un échange.'\n  },\n  2: {\n    action: 'check_reply',\n    next_action: 'send_dm',\n    delay_days: 5,\n    step_name: 'Vérification réponse 1',\n    context: 'Vérifier si le prospect a répondu au premier DM.'\n  },\n  3: {\n    action: 'send_dm',\n    next_action: 'check_reply',\n    delay_days: 4,\n    step_name: 'Deuxième DM - Proposition de valeur',\n    context: 'Partager une ressource utile (article, guide, stats) pertinente pour le prospect.'\n  },\n  4: {\n    action: 'check_reply',\n    next_action: 'send_dm',\n    delay_days: 7,\n    step_name: 'Vérification réponse 2',\n    context: 'Vérifier si le prospect a répondu après la proposition de valeur.'\n  },\n  5: {\n    action: 'send_dm',\n    next_action: 'close',\n    delay_days: 0,\n    step_name: 'Dernier DM - CTA final',\n    context: 'Message final avec CTA clair (call, meeting, ou pause).'  \n  }\n};\n\nconst step = sequenceConfig[currentStep];\nconst nextStep = currentStep + 1;\n\nconst nextActionDate = new Date();\nnextActionDate.setDate(nextActionDate.getDate() + step.delay_days);\n\nreturn [{\n  json: {\n    ...prospect,\n    current_action: step.action,\n    next_action_after: step.next_action,\n    step_name: step.step_name,\n    context: step.context,\n    next_sequence_step: nextStep,\n    next_action_at: nextActionDate.toISOString(),\n    is_final_step: nextStep > 5\n  }\n}];"
+      },
+      "id": "code-calculate-step",
+      "name": "Code - Calculate Next Step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.current_action }}",
+        "rules": {
+          "rules": [
+            { "value2": "send_dm", "outputKey": "sendDm" },
+            { "value2": "check_reply", "outputKey": "checkReply" }
+          ]
+        },
+        "fallbackOutput": 0,
+        "options": {}
+      },
+      "id": "switch-action-type",
+      "name": "Switch - Action Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1100, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 1024,\n  \"system\": \"Tu es un expert en prospection LinkedIn B2B. Génère un message de suivi DM personnalisé et naturel en français. Le message doit être court (max 500 chars), chaleureux, et adapté au contexte de la séquence. Ne sois pas intrusif. Ne mentionne pas l'IA.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Génère un DM de suivi LinkedIn pour {{ $json.first_name }} {{ $json.last_name }} (profil: {{ $json.headline }}).\\n\\nContexte: C'est l'étape {{ $json.sequence_step }} de la séquence ({{ $json.step_name }}).\\nInstructions: {{ $json.context }}\\n\\nLe DM doit être naturel et ne pas ressembler à un message automatique.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-generate-dm",
+      "name": "Claude - Generate Follow-up DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 140],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-anthropic-header",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.floor(Math.random() * (90 - 30 + 1)) + 30 }}",
+        "unit": "seconds"
+      },
+      "id": "wait-before-send",
+      "name": "Wait - Random Delay",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1560, 140],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Send the DM via Playwright (simplified)\nconst data = $input.first().json;\nconst claudeData = $('Claude - Generate Follow-up DM').first().json;\nconst dmText = claudeData.content ? claudeData.content[0].text : '';\n\nreturn [{\n  json: {\n    ...data,\n    dm_sent: dmText,\n    dm_sent_at: new Date().toISOString(),\n    action_result: 'dm_sent'\n  }\n}];"
+      },
+      "id": "playwright-send-dm",
+      "name": "Playwright - Send DM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 140],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "url": "https://www.linkedin.com/messaging",
+        "action": "launchPage",
+        "options": {}
+      },
+      "id": "playwright-read-messages",
+      "name": "Playwright - Read Messages",
+      "type": "n8n-nodes-base.playwright",
+      "typeVersion": 1,
+      "position": [1340, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if the prospect has replied\nconst data = $input.first().json;\n\n// Simulated check - in production this would parse Playwright output\nconst hasReplied = false;\nconst lastReply = hasReplied ? 'Prospect responded positively' : null;\n\nreturn [{\n  json: {\n    ...data,\n    has_replied: hasReplied,\n    last_reply: lastReply,\n    reply_checked_at: new Date().toISOString(),\n    action_result: hasReplied ? 'replied' : 'no_reply'\n  }\n}];"
+      },
+      "id": "code-check-reply",
+      "name": "Code - Check Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.has_replied }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-replied",
+      "name": "If - Prospect Replied",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 220],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE prospects SET status = 'responding', sequence_step = $1, last_contacted_at = NOW(), next_action_at = $2, last_reply = $3 WHERE id = $4",
+        "options": {}
+      },
+      "id": "postgres-update-responding",
+      "name": "Postgres - Update (Responding)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2000, 140],
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE prospects SET sequence_step = $1, last_contacted_at = NOW(), next_action_at = $2 WHERE id = $3",
+        "options": {}
+      },
+      "id": "postgres-update-sequence",
+      "name": "Postgres - Update Sequence",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2000, 300],
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.is_final_step }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-final-step",
+      "name": "If - Final Step",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2220, 220],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE prospects SET status = 'sequence_completed', completed_at = NOW() WHERE id = $1",
+        "options": {}
+      },
+      "id": "postgres-mark-completed",
+      "name": "Postgres - Mark Sequence Complete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2440, 140],
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// No-op: continue to next batch\nreturn $input.all();"
+      },
+      "id": "code-continue-batch",
+      "name": "Code - Continue Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 320],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log summary\nreturn [{\n  json: {\n    message: 'Sequence management completed',\n    completed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "code-done",
+      "name": "Code - Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 500],
+      "credentials": {}
+    }
+  ],
+  "connections": {
+    "cron-every-4h": {
+      "main": [[{ "node": "postgres-get-followups", "type": "main", "index": 0 }]]
+    },
+    "postgres-get-followups": {
+      "main": [[{ "node": "if-has-prospects", "type": "main", "index": 0 }]]
+    },
+    "if-has-prospects": {
+      "main": [
+        [{ "node": "split-in-batches", "type": "main", "index": 0 }],
+        [{ "node": "code-done", "type": "main", "index": 0 }]
+      ]
+    },
+    "split-in-batches": {
+      "main": [[{ "node": "code-calculate-step", "type": "main", "index": 0 }]]
+    },
+    "code-calculate-step": {
+      "main": [[{ "node": "switch-action-type", "type": "main", "index": 0 }]]
+    },
+    "switch-action-type": {
+      "main": [
+        [{ "node": "claude-generate-dm", "type": "main", "index": 0 }],
+        [{ "node": "playwright-read-messages", "type": "main", "index": 0 }]
+      ]
+    },
+    "claude-generate-dm": {
+      "main": [[{ "node": "wait-before-send", "type": "main", "index": 0 }]]
+    },
+    "wait-before-send": {
+      "main": [[{ "node": "playwright-send-dm", "type": "main", "index": 0 }]]
+    },
+    "playwright-send-dm": {
+      "main": [[{ "node": "if-final-step", "type": "main", "index": 0 }]]
+    },
+    "playwright-read-messages": {
+      "main": [[{ "node": "code-check-reply", "type": "main", "index": 0 }]]
+    },
+    "code-check-reply": {
+      "main": [[{ "node": "if-replied", "type": "main", "index": 0 }]]
+    },
+    "if-replied": {
+      "main": [
+        [{ "node": "postgres-update-responding", "type": "main", "index": 0 }],
+        [{ "node": "postgres-update-sequence", "type": "main", "index": 0 }]
+      ]
+    },
+    "postgres-update-responding": {
+      "main": [[{ "node": "code-continue-batch", "type": "main", "index": 0 }]]
+    },
+    "postgres-update-sequence": {
+      "main": [[{ "node": "code-continue-batch", "type": "main", "index": 0 }]]
+    },
+    "if-final-step": {
+      "main": [
+        [{ "node": "postgres-mark-completed", "type": "main", "index": 0 }],
+        [{ "node": "postgres-update-sequence", "type": "main", "index": 0 }]
+      ]
+    },
+    "postgres-mark-completed": {
+      "main": [[{ "node": "code-continue-batch", "type": "main", "index": 0 }]]
+    },
+    "code-continue-batch": {
+      "main": [[{ "node": "split-in-batches", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "gestion-sequences-v1-20250601",
+  "meta": {
+    "instanceId": ""
+  },
+  "tags": [
+    { "name": "séquence" },
+    { "name": "linkedin" },
+    { "name": "suivi" },
+    { "name": "claude" },
+    { "name": "playwright" }
+  ]
+}

@@ -1,0 +1,247 @@
+{
+  "name": "Réponse Auto DMs LinkedIn",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dm-received",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-dm-received",
+      "name": "Webhook - DM Received",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "credentials": {},
+      "webhookId": "webhook-dm-received-001"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={ \"status\": \"received\", \"timestamp\": \"{{ new Date().toISOString() }}\" }",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-to-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [220, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate the incoming DM payload\nconst payload = $input.first().json;\n\nconst requiredFields = ['sender_id', 'sender_name', 'message', 'conversation_id'];\nconst missingFields = requiredFields.filter(f => !payload[f] && payload[f] !== '');\n\nif (missingFields.length > 0) {\n  throw new Error(`Champs requis manquants: ${missingFields.join(', ')}`);\n}\n\nif (payload.sender_id === 'own_profile') {\n  return []; // Ignore own messages\n}\n\nif (!payload.message || payload.message.trim().length === 0) {\n  return []; // Ignore empty messages\n}\n\nreturn [{\n  json: {\n    ...payload,\n    validated: true,\n    received_at: new Date().toISOString(),\n    message_length: payload.message.length\n  }\n}];"
+      },
+      "id": "code-validate-payload",
+      "name": "Code - Validate Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 1024,\n  \"system\": \"Tu es un assistant IA qui analyse les messages LinkedIn reçus. Tu dois évaluer l'intention et l'urgence du message. Réponds UNIQUEMENT en JSON avec ce format:\\n{\\\"intent_score\\\": <1-10>, \\\"urgency\\\": \\\"high|medium|low\\\", \\\"category\\\": \\\"sales|support|networking|spam|other\\\", \\\"detected_language\\\": \\\"fr|en|other\\\", \\\"key_topics\\\": [\\\"topic1\\\", \\\"topic2\\\"], \\\"summary\\\": \\\"résumé court\\\", \\\"suggested_reply\\\": \\\"réponse suggérée personnalisée et naturelle\\\"}\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Analyse ce message LinkedIn reçu de {{ $json.sender_name }}: \\\"{{ $json.message }}\\\"\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-analyze-dm",
+      "name": "Claude - Analyze DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "cred-anthropic-header",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude's response into structured data\nconst response = $input.first().json;\nconst claudeText = response.content[0].text;\n\nlet analysis;\ntry {\n  // Extract JSON from Claude response (may have markdown formatting)\n  const jsonMatch = claudeText.match(/\\{[\\s\\S]*\\}/);\n  analysis = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  analysis = {\n    intent_score: 5,\n    urgency: 'medium',\n    category: 'other',\n    detected_language: 'fr',\n    key_topics: [],\n    summary: claudeText.substring(0, 200),\n    suggested_reply: ''\n  };\n}\n\n// Pass through original payload\nconst payload = $('Code - Validate Payload').first().json;\n\nreturn [{\n  json: {\n    ...payload,\n    analysis: analysis,\n    intent_score: analysis.intent_score,\n    urgency: analysis.urgency,\n    category: analysis.category,\n    suggested_reply: analysis.suggested_reply,\n    summary: analysis.summary\n  }\n}];"
+      },
+      "id": "code-parse-analysis",
+      "name": "Code - Parse Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "dataType": "number",
+        "value1": "={{ $json.intent_score }}",
+        "rules": {
+          "rules": [
+            { "value2": 7, "outputKey": "hot" },
+            { "value2": 3, "outputKey": "warm" }
+          ]
+        },
+        "fallbackOutput": 2,
+        "options": {}
+      },
+      "id": "switch-on-score",
+      "name": "Switch - Intent Score",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1100, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/{{ $env.DISCORD_WEBHOOK_ID }}/{{ $env.DISCORD_WEBHOOK_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"embeds\": [\n    {\n      \"title\": \"🔥 Lead CHAUD détecté !\",\n      \"description\": \"Un message à forte intention vient d'être reçu.\",\n      \"color\": 16737280,\n      \"timestamp\": \"{{ new Date().toISOString() }}\",\n      \"fields\": [\n        {\n          \"name\": \"De\",\n          \"value\": \"{{ $json.sender_name }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Score d'intention\",\n          \"value\": \"{{ $json.intent_score }}/10\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Urgence\",\n          \"value\": \"{{ $json.urgency }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Catégorie\",\n          \"value\": \"{{ $json.category }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Résumé\",\n          \"value\": \"{{ $json.summary }}\",\n          \"inline\": false\n        },\n        {\n          \"name\": \"Message original\",\n          \"value\": \"{{ $json.message }}\",\n          \"inline\": false\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "discord-hot-alert",
+      "name": "Discord - Hot Lead Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 100],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "url": "https://www.linkedin.com",
+        "action": "launchPage",
+        "options": {}
+      },
+      "id": "playwright-open-dm",
+      "name": "Playwright - Open DM",
+      "type": "n8n-nodes-base.playwright",
+      "typeVersion": 1,
+      "position": [1560, 100],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Auto-reply logic for hot leads\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    ...data,\n    auto_reply_sent: true,\n    reply_message: data.suggested_reply,\n    reply_sent_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "playwright-send-reply-hot",
+      "name": "Code - Send Auto Reply (Hot)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 100],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Auto-reply logic for warm leads\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    ...data,\n    auto_reply_sent: true,\n    reply_message: data.suggested_reply,\n    reply_sent_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "code-send-reply-warm",
+      "name": "Code - Send Auto Reply (Warm)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log-only for cold leads - no auto-reply\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    ...data,\n    auto_reply_sent: false,\n    action_taken: 'logged_only',\n    reason: 'Low intent score'\n  }\n}];"
+      },
+      "id": "code-log-cold",
+      "name": "Code - Log Only (Cold)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 500],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (conversation_id, sender_id, sender_name, message, intent_score, urgency, category, summary, auto_reply_sent, reply_message, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())",
+        "options": {}
+      },
+      "id": "postgres-log-conversation",
+      "name": "Postgres - Log Conversation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1760, 400],
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres Production"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "webhook-dm-received": {
+      "main": [[{ "node": "respond-to-webhook", "type": "main", "index": 0 }]]
+    },
+    "respond-to-webhook": {
+      "main": [[{ "node": "code-validate-payload", "type": "main", "index": 0 }]]
+    },
+    "code-validate-payload": {
+      "main": [[{ "node": "claude-analyze-dm", "type": "main", "index": 0 }]]
+    },
+    "claude-analyze-dm": {
+      "main": [[{ "node": "code-parse-analysis", "type": "main", "index": 0 }]]
+    },
+    "code-parse-analysis": {
+      "main": [[{ "node": "switch-on-score", "type": "main", "index": 0 }]]
+    },
+    "switch-on-score": {
+      "main": [
+        [{ "node": "discord-hot-alert", "type": "main", "index": 0 }],
+        [{ "node": "code-send-reply-warm", "type": "main", "index": 0 }],
+        [{ "node": "code-log-cold", "type": "main", "index": 0 }]
+      ]
+    },
+    "discord-hot-alert": {
+      "main": [[{ "node": "playwright-open-dm", "type": "main", "index": 0 }]]
+    },
+    "playwright-open-dm": {
+      "main": [[{ "node": "playwright-send-reply-hot", "type": "main", "index": 0 }]]
+    },
+    "playwright-send-reply-hot": {
+      "main": [[{ "node": "postgres-log-conversation", "type": "main", "index": 0 }]]
+    },
+    "code-send-reply-warm": {
+      "main": [[{ "node": "postgres-log-conversation", "type": "main", "index": 0 }]]
+    },
+    "code-log-cold": {
+      "main": [[{ "node": "postgres-log-conversation", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "reponse-auto-dms-v1-20250601",
+  "meta": {
+    "instanceId": ""
+  },
+  "tags": [
+    { "name": "linkedin" },
+    { "name": "dm" },
+    { "name": "claude" },
+    { "name": "automation" }
+  ]
+}
