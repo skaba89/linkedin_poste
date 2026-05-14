@@ -1,6 +1,5 @@
 'use client';
 
-import { apiFetch, ApiClientError } from '@/lib/api';
 import { useAppStore } from '@/store/use-app-store';
 import ErrorBoundary from './ErrorBoundary';
 import AIProviderSection from './AIProviderSection';
@@ -18,33 +17,12 @@ export default function SettingsView() {
     <div className="max-w-4xl mx-auto space-y-6">
       <h2 className="text-lg font-bold">Paramètres</h2>
 
-      <ErrorBoundary>
-        <UsageDashboard />
-      </ErrorBoundary>
-
-      <ErrorBoundary>
-        <WorkspaceSettings />
-      </ErrorBoundary>
-
-      <ErrorBoundary>
-        <WebhookSettings />
-      </ErrorBoundary>
-
-      {isAdmin && (
-        <ErrorBoundary>
-          <AIProviderSection />
-        </ErrorBoundary>
-      )}
-
-      {isAdmin && (
-        <ErrorBoundary>
-          <RoleManagement />
-        </ErrorBoundary>
-      )}
-
-      <ErrorBoundary>
-        <PWAInstallSection />
-      </ErrorBoundary>
+      <ErrorBoundary><UsageDashboard /></ErrorBoundary>
+      <ErrorBoundary><WorkspaceSettings /></ErrorBoundary>
+      <ErrorBoundary><WebhookSettings /></ErrorBoundary>
+      {isAdmin && <ErrorBoundary><AIProviderSection /></ErrorBoundary>}
+      {isAdmin && <ErrorBoundary><RoleManagement /></ErrorBoundary>}
+      <ErrorBoundary><PWAInstallSection /></ErrorBoundary>
     </div>
   );
 }

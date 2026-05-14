@@ -5,7 +5,7 @@ import { apiFetch, ApiClientError } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Label } from '@/lib/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
@@ -88,6 +88,7 @@ export default function AIProviderSection() {
     openrouter: '',
     groq: '',
     glm: '',
+    zai: '',
   });
   const [saving, setSaving] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
@@ -216,9 +217,8 @@ export default function AIProviderSection() {
     );
   }
 
-  // Filter out ZAI from configurable providers
-  const configurableProviders = providers.filter((p) => p.id !== 'zai');
-  const zaiProvider = providers.find((p) => p.id === 'zai');
+  // All providers are now configurable (including ZAI)
+  const allProviders = providers;
 
   return (
     <Card className="border-border/50">
@@ -228,7 +228,7 @@ export default function AIProviderSection() {
           Configuration des fournisseurs IA
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Gérez vos clés API et le fournisseur IA par défaut. Si un fournisseur échoue, le système bascule automatiquement vers ZAI.
+          Gérez vos clés API et le fournisseur IA par défaut. Si un fournisseur échoue, le système bascule automatiquement vers le suivant.
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -240,7 +240,7 @@ export default function AIProviderSection() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {providers.map((p) => (
+              {allProviders.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
                   <span className="flex items-center gap-2">
                     {PROVIDER_ICONS[p.icon]}
@@ -258,7 +258,7 @@ export default function AIProviderSection() {
         <div className="space-y-4">
           <Label className="text-sm font-medium">Fournisseurs disponibles</Label>
 
-          {configurableProviders.map((provider) => {
+          {allProviders.map((provider) => {
             const isConfigured = provider.keySource !== 'none';
             const badgeStyle = KEY_SOURCE_BADGE[provider.keySource];
             const testResult = testResults[provider.id];
@@ -336,7 +336,7 @@ export default function AIProviderSection() {
                   </div>
                 )}
 
-                {/* API Key Input (for non-configured or to update) */}
+                {/* API Key Input */}
                 <div className="flex items-end gap-2">
                   <div className="flex-1 min-w-0">
                     <Label className="text-xs text-muted-foreground mb-1 block">
@@ -346,7 +346,7 @@ export default function AIProviderSection() {
                     </Label>
                     <Input
                       type="password"
-                      placeholder={provider.keySource === 'none' ? 'sk-...' : 'Laisser vide pour garder l\'existante'}
+                      placeholder={provider.keySource === 'none' ? 'Clé API...' : 'Laisser vide pour garder l\'existante'}
                       value={apiKeys[provider.id] || ''}
                       onChange={(e) => setApiKeys((prev) => ({ ...prev, [provider.id]: e.target.value }))}
                       disabled={saving === provider.id}
@@ -385,62 +385,6 @@ export default function AIProviderSection() {
               </div>
             );
           })}
-
-          {/* ZAI Fallback Card */}
-          {zaiProvider && (
-            <div className="rounded-lg border border-border/60 p-4 bg-muted/30">
-              <div className="flex items-center gap-2.5">
-                <div className="flex items-center justify-center w-8 h-8 rounded-md bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-400">
-                  {PROVIDER_ICONS[zaiProvider.icon]}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold">{zaiProvider.name}</span>
-                    <Badge variant="secondary" className="text-[10px] bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
-                      <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" />
-                      Toujours actif
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">{zaiProvider.description}</p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs gap-1"
-                  onClick={() => handleTest(zaiProvider.id)}
-                  disabled={testing === zaiProvider.id}
-                >
-                  {testing === zaiProvider.id ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <Play className="w-3 h-3" />
-                  )}
-                  Tester
-                </Button>
-              </div>
-
-              {testResults[zaiProvider.id] && (
-                <div
-                  className={`text-xs rounded-md px-3 py-2 flex items-center gap-2 mt-3 ${
-                    testResults[zaiProvider.id].success
-                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50'
-                      : 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400 border border-red-200 dark:border-red-800/50'
-                  }`}
-                >
-                  {testResults[zaiProvider.id].success ? (
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                  ) : (
-                    <XCircle className="w-3.5 h-3.5 shrink-0" />
-                  )}
-                  <span className="truncate">
-                    {testResults[zaiProvider.id].success
-                      ? `Connecté (${testResults[zaiProvider.id].latency}ms)`
-                      : testResults[zaiProvider.id].message}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Info */}
@@ -452,7 +396,6 @@ export default function AIProviderSection() {
               <ul className="list-disc list-inside space-y-0.5 opacity-90">
                 <li>Le système essaie le fournisseur par défaut en premier</li>
                 <li>En cas d&apos;échec, il bascule automatiquement vers le fournisseur suivant</li>
-                <li>ZAI (fallback intégré) est toujours disponible en dernier recours</li>
                 <li>Les clés API sont stockées en base de données, pas dans les variables d&apos;environnement</li>
                 <li>Les variables d&apos;environnement sont utilisées comme source secondaire</li>
               </ul>
